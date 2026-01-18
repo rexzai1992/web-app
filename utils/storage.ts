@@ -4,82 +4,58 @@ export interface SavedPhoto {
   dataUrl: string;
 }
 
-const DB_NAME = 'DeepBlueDB';
-const STORE_NAME = 'gallery';
-const DB_VERSION = 1;
-
-const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
-        reject(new Error("IndexedDB not supported"));
-        return;
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-    };
-  });
-};
+const STORAGE_KEY = 'deep_blue_gallery';
 
 export const savePhotoToGallery = async (dataUrl: string): Promise<void> => {
   try {
-      const db = await openDB();
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const photo: SavedPhoto = {
-        id: Date.now().toString(),
-        timestamp: Date.now(),
-        dataUrl
-      };
-      await new Promise((resolve, reject) => {
-        const req = store.add(photo);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      console.log('Photo saved to IndexedDB');
+    const json = localStorage.getItem(STORAGE_KEY);
+    const photos: SavedPhoto[] = json ? JSON.parse(json) : [];
+    
+    const newPhoto: SavedPhoto = {
+      id: Date.now().toString(),
+      timestamp: Date.now(),
+      dataUrl
+    };
+    
+    // Add new photo to the beginning
+    const updated = [newPhoto, ...photos];
+    
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      console.log('Photo saved to LocalStorage');
+    } catch (e) {
+      console.error("LocalStorage quota exceeded", e);
+      alert("Gallery storage is full! The photo was downloaded, but could not be saved to the admin history.");
+    }
   } catch (e) {
-      console.error("Error saving photo:", e);
-      throw e;
+    console.error("Error saving photo:", e);
+    throw e;
   }
 };
 
 export const getGallery = async (): Promise<SavedPhoto[]> => {
   try {
-      const db = await openDB();
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      return new Promise((resolve, reject) => {
-        const req = store.getAll();
-        req.onsuccess = () => {
-            const res = req.result as SavedPhoto[];
-            // Sort by newest first
-            res.sort((a, b) => b.timestamp - a.timestamp);
-            resolve(res);
-        };
-        req.onerror = () => reject(req.error);
-      });
+    const json = localStorage.getItem(STORAGE_KEY);
+    if (!json) return [];
+    const photos = JSON.parse(json) as SavedPhoto[];
+    // Sort by newest first
+    return photos.sort((a, b) => b.timestamp - a.timestamp);
   } catch (e) {
-      console.error("Error fetching gallery:", e);
-      return [];
+    console.error("Error fetching gallery:", e);
+    return [];
   }
 };
 
 export const deletePhotoFromGallery = async (id: string): Promise<SavedPhoto[]> => {
     try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        await new Promise((resolve, reject) => {
-            const req = store.delete(id);
-            req.onsuccess = () => resolve(undefined);
-            req.onerror = () => reject(req.error);
-        });
-        return await getGallery();
+        const json = localStorage.getItem(STORAGE_KEY);
+        if (!json) return [];
+        
+        const photos = JSON.parse(json) as SavedPhoto[];
+        const updated = photos.filter(p => p.id !== id);
+        
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
     } catch (e) {
         console.error("Error deleting photo:", e);
         return [];
@@ -88,14 +64,7 @@ export const deletePhotoFromGallery = async (id: string): Promise<SavedPhoto[]> 
 
 export const clearGallery = async (): Promise<void> => {
     try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        await new Promise((resolve, reject) => {
-            const req = store.clear();
-            req.onsuccess = () => resolve(undefined);
-            req.onerror = () => reject(req.error);
-        });
+        localStorage.removeItem(STORAGE_KEY);
     } catch (e) {
         console.error("Error clearing gallery:", e);
     }
